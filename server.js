@@ -9,6 +9,8 @@ const app=express();
 const port=process.env.PORT||3000;
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
 const pool=process.env.DATABASE_URL?new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}}):null;
+const OPENAI_API_KEY=process.env.OPENAI_API_KEY||'';
+const OPENAI_MODEL=process.env.OPENAI_MODEL||'gpt-5.6-luna';
 
 app.use(express.json({limit:'100kb'}));
 
@@ -48,6 +50,27 @@ app.post('/api/sessions',async(req,res)=>{
   res.status(201).json({id,saved:true});
 });
 
+app.post('/api/analyze',async(req,res)=>{
+  const {prompt,transcript,durationSeconds=45}=req.body||{};
+  if(!prompt||!transcript)return res.status(400).json({error:'prompt and transcript are required'});
+  const text=String(transcript).trim().slice(0,12000);
+  const words=text?text.split(/\\s+/).filter(Boolean):[];
+  const fillerMatches=text.toLowerCase().match(/\\b(um|uh|like|you know|actually|basically)\\b/g)||[];
+  const wpm=Math.round(words.length/Math.max(Number(durationSeconds)||1,1)*60);
+  const sentences=text.split(/[.!?]+/).map(s=>s.trim()).filter(Boolean);
+  const hasStructure=/\\b(first|second|finally|because|however|for example|so|then|the main|my point)\\b/i.test(text);
+  const heuristic={clarity:words.length>=35?'Good':'Needs more detail',structure:hasStructure?'Clear signposting':'Add a simple beginning-middle-end structure',vocabulary:new Set(words.map(w=>w.toLowerCase().replace(/[^a-z']/g,''))).size>=Math.max(12,words.length*.55)?'Varied':'Try more precise word choices',fillerCount:fillerMatches.length,wpm,wordCount:words.length,sentenceCount:sentences.length,tip:fillerMatches.length>2?'Replace filler words with a short pause.':wpm>170?'Slow down slightly and land your key points.':wpm<90?'Add a little more detail and energy.':'Keep your pace and focus on specific examples.'};
+  if(!OPENAI_API_KEY)return res.json({...heuristic,source:'instant-analysis'});
+  try{
+    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${OPENAI_API_KEY}`},body:JSON.stringify({model:OPENAI_MODEL,input:[{role:'user',content:`You are a concise speaking coach. Analyze this spontaneous speaking response. Return ONLY valid JSON with keys: clarity, structure, vocabulary, strengths (array of 2 strings), improvements (array of 2 strings), nextDrill (string). Do not score the person. Prompt: ${String(prompt).slice(0,500)} Response: ${text}`}]})});
+    if(!response.ok)throw new Error(`OpenAI ${response.status}`);
+    const data=await response.json();
+    const raw=data.output_text||data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text||'';
+    const ai=JSON.parse(raw.replace(/^```json\\s*|\\s*```$/g,''));
+    return res.json({...heuristic,...ai,source:'ai'});
+  }catch(error){console.error('AI analysis failed',error);return res.json({...heuristic,source:'instant-analysis'});}
+});
+
 app.get('/api/sessions',async(req,res)=>{
   const deviceId=String(req.query.deviceId||'').slice(0,100);
   if(!deviceId)return res.status(400).json({error:'deviceId is required'});
@@ -60,7 +83,7 @@ app.get('/api/sessions',async(req,res)=>{
 });
 
 app.use(express.static(path.join(__dirname,'dist')));
-app.get('*',(req,res)=>{
+app.get(/.*/,(req,res)=>{
   if(req.path.startsWith('/api/'))return res.status(404).json({error:'not_found'});
   res.sendFile(path.join(__dirname,'dist','index.html'));
 });
