@@ -1,20 +1,17 @@
 {
   "name": "stop-scrolling",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "node server.js",
     "preview": "vite preview"
   },
   "dependencies": {
-    "express": "latest",
-    "pg": "latest",
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "vite": "^7.1.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   },
   "devDependencies": {}
 }
