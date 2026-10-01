@@ -13,7 +13,7 @@ async function transcribe(request,env){
  const out=new FormData();out.append('file',audio,audio.name||'response.webm');out.append('model',env.OPENAI_TRANSCRIBE_MODEL||'gpt-4o-transcribe');out.append('language','en');
  const prompt=String(form.get('prompt')||'').trim();if(prompt)out.append('prompt',prompt);
  const response=await fetch('https://api.openai.com/v1/audio/transcriptions',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`},body:out});
- if(!response.ok)throw new Error('Transcription request failed');
+ if(!response.ok){const errorData=await response.json().catch(()=>({}));const detail=String(errorData.error?.message||errorData.message||'').slice(0,240);throw new Error(`OpenAI returned ${response.status}${detail?`: ${detail}`:''}`)}
  const data=await response.json();
  return Response.json({transcript:data.text||''});
 }
@@ -47,7 +47,7 @@ async function api(request,env){
  if(url.pathname==='/api/health')return Response.json({ok:true,service:'stop-scrolling',platform:'cloudflare-worker',transcriptionConfigured:!!env.OPENAI_API_KEY,coachingConfigured:!!env.OPENAI_API_KEY});
  if(url.pathname==='/api/transcribe'&&request.method==='POST'){
   if(!env.OPENAI_API_KEY)return Response.json({error:'Transcription service is not configured'},{status:503});
-  try{return await transcribe(request,env)}catch{return Response.json({error:'Transcription failed'},{status:502})}
+  try{return await transcribe(request,env)}catch(error){const detail=String(error?.message||'Unknown transcription error').slice(0,320);return Response.json({error:'Transcription failed',detail},{status:502})}
  }
  if(url.pathname==='/api/sessions'&&request.method==='POST')return Response.json({ok:true,saved:false,message:'Local history is active; Supabase persistence will be connected next.'});
  if(url.pathname==='/api/analyze'&&request.method==='POST'){
